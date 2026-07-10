@@ -8,158 +8,16 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError, RPCError
 
-# ===== TRY REDIS =====
-try:
-    import redis
-    REDIS_AVAILABLE = True
-except:
-    REDIS_AVAILABLE = False
-    print("⚠️ Redis not installed, using file backup")
-
-class SmartSession:
-    """Session with Redis + File + Auto-Renew"""
-    
-    def __init__(self):
-        self.api_id = int(os.environ.get("API_ID", 34783446))
-        self.api_hash = os.environ.get("API_HASH", "c1da051b38797498a32805f762c36bd3")
-        self.session_key = "telegram_session_v1"
-        
-        # Setup Redis
-        self.redis = None
-        if REDIS_AVAILABLE:
-            redis_url = os.environ.get("REDIS_URL")
-            if redis_url:
-                try:
-                    self.redis = redis.from_url(redis_url)
-                    self.redis.ping()
-                    print("✅ Redis connected successfully!")
-                except Exception as e:
-                    print(f"⚠️ Redis connection failed: {e}")
-        
-        self.client = None
-        self.session_file = "session_backup.json"
-    
-    def _load_session(self):
-        """Load session from Redis or file"""
-        # Try Redis first
-        if self.redis:
-            try:
-                session = self.redis.get(self.session_key)
-                if session:
-                    print("✅ Session loaded from Redis")
-                    return session.decode()
-            except Exception as e:
-                print(f"⚠️ Redis read failed: {e}")
-        
-        # Try file backup
-        try:
-            if os.path.exists(self.session_file):
-                with open(self.session_file, 'r') as f:
-                    data = json.load(f)
-                    session = data.get('session_string')
-                    if session:
-                        print("✅ Session loaded from file backup")
-                        return session
-        except Exception as e:
-            print(f"⚠️ File read failed: {e}")
-        
-        # Try environment variable
-        session = os.environ.get("STRING_SESSION")
-        if session:
-            print("✅ Session loaded from environment")
-            return session
-        
-        return None
-    
-    def _save_session(self, session_str):
-        """Save session to Redis and file"""
-        # Save to Redis
-        if self.redis:
-            try:
-                self.redis.set(self.session_key, session_str)
-                self.redis.expire(self.session_key, 30*24*60*60)
-                print("💾 Session saved to Redis")
-            except Exception as e:
-                print(f"⚠️ Redis save failed: {e}")
-        
-        # Save to file
-        try:
-            with open(self.session_file, 'w') as f:
-                json.dump({
-                    'session_string': session_str,
-                    'timestamp': str(asyncio.get_event_loop().time())
-                }, f)
-            print("💾 Session saved to file backup")
-        except Exception as e:
-            print(f"⚠️ File save failed: {e}")
-    
-    async def get_client(self):
-        """Get client with auto-renewal"""
-        max_retries = 3
-        
-        for attempt in range(max_retries):
-            try:
-                session_str = self._load_session()
-                
-                if session_str:
-                    print(f"🔄 Using saved session (attempt {attempt+1})")
-                    self.client = TelegramClient(
-                        StringSession(session_str),
-                        self.api_id,
-                        self.api_hash
-                    )
-                    await self.client.start()
-                    
-                    me = await self.client.get_me()
-                    print(f"✅ Connected as: {me.first_name} (@{me.username})")
-                    
-                    new_session = self.client.session.save()
-                    if new_session != session_str:
-                        self._save_session(new_session)
-                    
-                    return self.client
-                
-                else:
-                    print("🔄 Creating brand new session...")
-                    self.client = TelegramClient(
-                        StringSession(),
-                        self.api_id,
-                        self.api_hash
-                    )
-                    await self.client.start()
-                    
-                    new_session = self.client.session.save()
-                    self._save_session(new_session)
-                    print("✅ New session created and saved!")
-                    
-                    me = await self.client.get_me()
-                    print(f"✅ Connected as: {me.first_name} (@{me.username})")
-                    
-                    return self.client
-                    
-            except Exception as e:
-                print(f"❌ Attempt {attempt+1} failed: {e}")
-                
-                if "SESSION" in str(e).upper() or "AUTH" in str(e).upper():
-                    print("⚠️ Session invalid, clearing...")
-                    if self.redis:
-                        self.redis.delete(self.session_key)
-                    if os.path.exists(self.session_file):
-                        os.remove(self.session_file)
-                
-                if attempt < max_retries - 1:
-                    wait_time = 10 * (attempt + 1)
-                    print(f"⏳ Waiting {wait_time} seconds before retry...")
-                    await asyncio.sleep(wait_time)
-        
-        raise Exception("❌ Failed to connect after all attempts")
-
-# ===== BOT CONFIGURATION =====
+# ===== CONFIGURATION =====
+API_ID = int(os.environ.get("API_ID", 34783446))
+API_HASH = os.environ.get("API_HASH", "c1da051b38797498a32805f762c36bd3")
+STRING_SESSION = os.environ.get("STRING_SESSION", "")
 SOURCE_CHANNEL = int(os.environ.get("SOURCE_CHANNEL", -1003728422300))
 TARGET_CHANNEL = int(os.environ.get("TARGET_CHANNEL", -1003783045906))
 DELETE_DELAY = int(os.environ.get("DELETE_DELAY", 10))
 GAP_DELAY = int(os.environ.get("GAP_DELAY", 10))
 
+# ===== BLOCK BINS =====
 BLOCK_BINS = {
     "440066","453201","497171","431195","411146","525849","453924",
     "492913","454638","465865","461785","437401","404924","455600",
@@ -173,7 +31,9 @@ BLOCK_BINS = {
     "408383","419327","412998","554027","412329","440768","401711"
 }
 
-# ===== MAIN BOT =====
+# ===== SETUP =====
+client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
+
 posted = set()
 dup_file = "posted_cc.txt"
 if os.path.exists(dup_file):
@@ -184,28 +44,31 @@ cc_regex = re.compile(
     r'(\d{16})\s*\|\s*(\d{1,2})\s*\|\s*(\d{2,4})\s*\|\s*(\d{3,4})',
     re.IGNORECASE
 )
-simple_cc_regex = re.compile(
-    r'(\d{15,16})\s*[|/]\s*(\d{1,2})\s*[|/]\s*(\d{2,4})\s*[|/]\s*(\d{3,4})',
-    re.IGNORECASE
-)
 
 msg_counter = 0
 lock = asyncio.Lock()
-client = None
 
+# ===== BOT STARTED MESSAGE =====
+async def send_startup_message():
+    """Bot start hone par target channel mein message bheje"""
+    try:
+        await client.send_message(
+            TARGET_CHANNEL, 
+            "🤖 Bot is working! 🚀\n\n✅ Successfully deployed on Railway\n✅ Monitoring source channel\n✅ Ready to forward CCs"
+        )
+        print("✅ Startup message sent to target channel!")
+    except Exception as e:
+        print(f"⚠️ Could not send startup message: {e}")
+
+# ===== MESSAGE HANDLER =====
 @client.on(events.NewMessage(chats=SOURCE_CHANNEL))
 async def handler(event):
     global msg_counter
-    
     if not event.text:
         return
     
     print(f"\n📥 New message received!")
-    
     matches = cc_regex.findall(event.text)
-    if not matches:
-        matches = simple_cc_regex.findall(event.text)
-    
     if not matches:
         print("⚠️ No CC found")
         return
@@ -217,7 +80,6 @@ async def handler(event):
                 month = match[1].strip()
                 year = match[2].strip()
                 cvv = match[3].strip()
-                
                 full_cc = f"{card_number}|{month}|{year}|{cvv}"
                 prefix6 = card_number[:6]
                 
@@ -241,78 +103,62 @@ async def handler(event):
                     with open(dup_file, "a") as f:
                         f.write(card_hash + "\n")
                     
-                    for attempt in range(3):
-                        try:
-                            msg = await client.send_message(TARGET_CHANNEL, f"/br {full_cc}")
-                            msg_counter += 1
-                            print(f"✅ SENT: {full_cc[:10]}*** | Total: {msg_counter}")
-                            
-                            await asyncio.sleep(DELETE_DELAY)
-                            try:
-                                await msg.delete()
-                                print(f"🗑️ Deleted")
-                            except:
-                                pass
-                            
-                            await asyncio.sleep(GAP_DELAY)
-                            break
-                            
-                        except FloodWaitError as e:
-                            print(f"⏳ Flood wait: {e.seconds}s")
-                            await asyncio.sleep(e.seconds + 5)
-                        except Exception as e:
-                            print(f"❌ Error: {e}")
-                            if attempt < 2:
-                                await asyncio.sleep(5)
-                                
+                    try:
+                        msg = await client.send_message(TARGET_CHANNEL, f"/br {full_cc}")
+                        msg_counter += 1
+                        print(f"✅ SENT: {full_cc[:10]}*** | Total: {msg_counter}")
+                        await asyncio.sleep(DELETE_DELAY)
+                        await msg.delete()
+                        print(f"🗑️ Deleted")
+                        await asyncio.sleep(GAP_DELAY)
+                    except FloodWaitError as e:
+                        print(f"⏳ Flood wait: {e.seconds}s")
+                        await asyncio.sleep(e.seconds + 5)
+                    except Exception as e:
+                        print(f"❌ Error: {e}")
         except Exception as e:
             print(f"❌ Processing error: {e}")
             continue
 
-async def keep_alive():
-    """Keep session alive"""
-    while True:
-        try:
-            await asyncio.sleep(600)
-            if client:
-                await client.get_me()
-                print("💓 Session alive")
-        except Exception as e:
-            print(f"⚠️ Keep-alive failed: {e}")
-            try:
-                await client.disconnect()
-                await client.connect()
-                print("✅ Reconnected")
-            except:
-                print("❌ Reconnect failed")
-
+# ===== MAIN =====
 async def main():
-    global client
-    
     print("="*50)
-    print("🚀 SMART BOT STARTING...")
+    print("🚀 BOT STARTING...")
     print("="*50)
     
-    smart = SmartSession()
-    client = await smart.get_client()
+    try:
+        await client.start()
+        print("✅ Client started successfully!")
+    except Exception as e:
+        print(f"❌ Failed to start client: {e}")
+        sys.exit(1)
     
-    asyncio.create_task(keep_alive())
+    try:
+        me = await client.get_me()
+        print(f"🤖 Connected as: {me.first_name} (@{me.username})")
+    except Exception as e:
+        print(f"❌ Failed to get user info: {e}")
+        sys.exit(1)
     
+    # Check source channel
     try:
         await client.get_entity(SOURCE_CHANNEL)
         print(f"✅ Source channel accessible: {SOURCE_CHANNEL}")
     except Exception as e:
         print(f"⚠️ Source channel error: {e}")
     
+    # Check target channel
     try:
         await client.get_entity(TARGET_CHANNEL)
         print(f"✅ Target channel accessible: {TARGET_CHANNEL}")
     except Exception as e:
         print(f"⚠️ Target channel error: {e}")
     
+    # ===== SEND STARTUP MESSAGE =====
+    await send_startup_message()
+    
     print("="*50)
     print("🤖 BOT IS RUNNING!")
-    print("Press Ctrl+C to stop")
     print("="*50)
     
     await client.run_until_disconnected()
