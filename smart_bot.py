@@ -31,7 +31,6 @@ class SmartSession:
             if redis_url:
                 try:
                     self.redis = redis.from_url(redis_url)
-                    # Test connection
                     self.redis.ping()
                     print("✅ Redis connected successfully!")
                 except Exception as e:
@@ -78,7 +77,7 @@ class SmartSession:
         if self.redis:
             try:
                 self.redis.set(self.session_key, session_str)
-                self.redis.expire(self.session_key, 30*24*60*60)  # 30 days
+                self.redis.expire(self.session_key, 30*24*60*60)
                 print("💾 Session saved to Redis")
             except Exception as e:
                 print(f"⚠️ Redis save failed: {e}")
@@ -111,11 +110,9 @@ class SmartSession:
                     )
                     await self.client.start()
                     
-                    # Verify it works
                     me = await self.client.get_me()
                     print(f"✅ Connected as: {me.first_name} (@{me.username})")
                     
-                    # Save refreshed session
                     new_session = self.client.session.save()
                     if new_session != session_str:
                         self._save_session(new_session)
@@ -123,7 +120,6 @@ class SmartSession:
                     return self.client
                 
                 else:
-                    # No session found, create new
                     print("🔄 Creating brand new session...")
                     self.client = TelegramClient(
                         StringSession(),
@@ -132,7 +128,6 @@ class SmartSession:
                     )
                     await self.client.start()
                     
-                    # Save new session
                     new_session = self.client.session.save()
                     self._save_session(new_session)
                     print("✅ New session created and saved!")
@@ -145,7 +140,6 @@ class SmartSession:
             except Exception as e:
                 print(f"❌ Attempt {attempt+1} failed: {e}")
                 
-                # If session is invalid, delete it and try again
                 if "SESSION" in str(e).upper() or "AUTH" in str(e).upper():
                     print("⚠️ Session invalid, clearing...")
                     if self.redis:
@@ -197,7 +191,7 @@ simple_cc_regex = re.compile(
 
 msg_counter = 0
 lock = asyncio.Lock()
-client = None  # Will be set in main
+client = None
 
 @client.on(events.NewMessage(chats=SOURCE_CHANNEL))
 async def handler(event):
@@ -229,7 +223,6 @@ async def handler(event):
                 
                 print(f"🔍 Found CC: {card_number[:6]}***")
                 
-                # Block non-Visa
                 if not card_number.startswith('4'):
                     print(f"⛔ Skipped non-Visa: {prefix6}")
                     continue
@@ -280,13 +273,12 @@ async def keep_alive():
     """Keep session alive"""
     while True:
         try:
-            await asyncio.sleep(600)  # 10 minutes
+            await asyncio.sleep(600)
             if client:
                 await client.get_me()
                 print("💓 Session alive")
         except Exception as e:
             print(f"⚠️ Keep-alive failed: {e}")
-            # Try to reconnect
             try:
                 await client.disconnect()
                 await client.connect()
@@ -301,14 +293,11 @@ async def main():
     print("🚀 SMART BOT STARTING...")
     print("="*50)
     
-    # Get smart session
     smart = SmartSession()
     client = await smart.get_client()
     
-    # Start keep-alive
     asyncio.create_task(keep_alive())
     
-    # Check channels
     try:
         await client.get_entity(SOURCE_CHANNEL)
         print(f"✅ Source channel accessible: {SOURCE_CHANNEL}")
