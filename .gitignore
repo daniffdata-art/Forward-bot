@@ -1,5 +1,35 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# Railway / Deployment
 .env
-posted_cc.txt
 *.log
+
+# Session Files
+posted_cc.txt
+session_backup.json
+*.session
+*.session-journal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Railway
+railway-deploy-*.log
