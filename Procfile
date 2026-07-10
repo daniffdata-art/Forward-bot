@@ -1,1 +1,1 @@
-worker: python3 smart_bot.py
+worker: bash start.sh
