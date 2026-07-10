@@ -1,3 +1,2 @@
 #!/bin/bash
-pip install -r requirements.txt
-python smart_bot.py
+python3 smart_bot.py
