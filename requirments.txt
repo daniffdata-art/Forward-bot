@@ -1,4 +1,0 @@
-telethon
-redis
-aiohttp
-asyncio
